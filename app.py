@@ -2,53 +2,85 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score
 import streamlit as st
+import kagglehub
+import os
 
-# load data
-data = pd.read_csv("creditcard.csv")
+# ---------------------------
+# Load dataset (via kagglehub)
+# ---------------------------
+st.title("💳 Credit Card Fraud Detection App")
 
+st.write("Downloading dataset from Kaggle...")
+path = kagglehub.dataset_download("mlg-ulb/creditcardfraud")
+csv_path = os.path.join(path, "creditcard.csv")
 
-# separate legitimate and fraudulent transactions
+data = pd.read_csv(csv_path)
+st.success("✅ Dataset loaded successfully!")
+
+# ---------------------------
+# Preprocessing
+# ---------------------------
 legit = data[data.Class == 0]
 fraud = data[data.Class == 1]
 
-# undersample legitimate transactions to balance the classes
+# Balance dataset (undersampling)
 legit_sample = legit.sample(n=len(fraud), random_state=2)
-data = pd.concat([legit_sample, fraud], axis=0)
+balanced_data = pd.concat([legit_sample, fraud], axis=0)
 
-# split data into training and testing sets
-X = data.drop(columns="Class", axis=1)
-y = data["Class"]
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=2)
+X = balanced_data.drop(columns="Class", axis=1)
+y = balanced_data["Class"]
 
-# train logistic regression model
+# Scale features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(
+    X_scaled, y, test_size=0.2, stratify=y, random_state=2
+)
+
+# ---------------------------
+# Train model (once)
+# ---------------------------
 model = LogisticRegression()
 model.fit(X_train, y_train)
 
-# evaluate model performance
-train_acc = accuracy_score(model.predict(X_train), y_train)
-test_acc = accuracy_score(model.predict(X_test), y_test)
+train_acc = accuracy_score(y_train, model.predict(X_train))
+test_acc = accuracy_score(y_test, model.predict(X_test))
 
-# create Streamlit app
-st.title("Credit Card Fraud Detection Model")
-st.write("Enter the following features to check if the transaction is legitimate or fraudulent:")
+st.write(f"🔹 Training Accuracy: **{train_acc:.3f}**")
+st.write(f"🔹 Testing Accuracy: **{test_acc:.3f}**")
 
-# create input fields for user to enter feature values
-input_df = st.text_input('Input All features')
-input_df_lst = input_df.split(',')
-# create a button to submit input and get prediction
+# ---------------------------
+# Prediction section
+# ---------------------------
+st.header("🔍 Predict Transaction Type")
+
+st.write("Enter 30 feature values (comma-separated) like:")
+st.code("0.0, -1.3598, -0.0727, 2.5363, 1.3781, ... , 149.62")
+
+user_input = st.text_input("Enter all 30 features:")
 submit = st.button("Submit")
 
 if submit:
-    # get input feature values
-    features = np.array(input_df_lst, dtype=np.float64)
-    # make prediction
-    prediction = model.predict(features.reshape(1,-1))
-    # display result
-    if prediction[0] == 0:
-        st.write("Legitimate transaction")
-    else:
-        st.write("Fraudulent transaction")
+    try:
+        # Parse input
+        features = np.array(user_input.split(","), dtype=np.float64).reshape(1, -1)
 
+        if features.shape[1] != X.shape[1]:
+            st.error(f"❌ Expected {X.shape[1]} features, got {features.shape[1]}")
+        else:
+            # Scale using same scaler
+            features_scaled = scaler.transform(features)
+            prediction = model.predict(features_scaled)
+
+            if prediction[0] == 0:
+                st.success("✅ Legitimate Transaction")
+            else:
+                st.error("⚠️ Fraudulent Transaction Detected!")
+    except Exception as e:
+        st.error(f"Invalid input: {e}")
 
